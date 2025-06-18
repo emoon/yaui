@@ -1,0 +1,13 @@
+[package]
+name = "api_test"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cosmic-text = { version = "0.14", default-features = false, features = ["std", "swash"] }
+minifb = "0.28"
+thiserror = "2"
+background-worker = { path = "../crates/background_worker" }
+clay-layout = { path = "../crates/clay" }
+tiny-skia = "0.11"
+

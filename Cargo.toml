@@ -1,0 +1,12 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/clay",
+    "api_test",
+    "crates/background_worker",
+]
+
+[workspace.package]
+edition = "2024"
+
+[workspace.dependencies]
