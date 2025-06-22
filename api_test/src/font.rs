@@ -1,5 +1,4 @@
 use crate::internal_error::{InternalError, InternalResult};
-use crate::render_api::RawVoidPtr;
 use background_worker::{AnySend, BoxAnySend, Receiver, WorkSystem, WorkerResult};
 use cosmic_text::{
     Attrs, AttrsOwned, Buffer, Color, FontSystem, Metrics, Shaping, SwashCache, Weight,
@@ -7,7 +6,7 @@ use cosmic_text::{
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tiny_skia::{Pixmap, Color as TinyColor};
+use tiny_skia::Pixmap;
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub(crate) struct GeneratorConfig {
@@ -244,11 +243,11 @@ fn generate_text(
 
     let mut pixmap = Pixmap::new(width as _, height as _).unwrap();
 
-    let mut output = vec![0; width * height];
+    let _output = vec![0; width * height];
 
     // Create a default text color
     let text_color = Color::rgb(0xFF, 0xFF, 0xFF);
-    let mut max_y_with_pixels = 0;
+    let _max_y_with_pixels = 0;
     let pixels = pixmap.pixels_mut();
 
     // Draw the buffer (for performance, instead use SwashCache directly)
@@ -261,7 +260,7 @@ fn generate_text(
             if x < 0 || y < 0 || x >= width as i32 || y >= height as i32 {
                 return;
             }
-            
+
             let color = tiny_skia::PremultipliedColorU8::from_rgba(c, c, c, c).unwrap();
 
             pixels[(y as usize * width + x as usize) as usize] = color;
@@ -312,7 +311,7 @@ fn job_load_font(data: BoxAnySend, state: Arc<Mutex<AnySend>>) -> WorkerResult {
         &mut state.loaded_fonts,
         &mut state.font_system,
     )
-        .unwrap();
+    .unwrap();
 
     // TODO: Error handling
     Ok(Box::new(()))
@@ -451,8 +450,6 @@ impl TextGenerator {
             size,
         };
 
-        //dbg!("{}", &gen_config);
-
         self.cached_strings.get(&gen_config).map(|s| &*s)
     }
 }
@@ -520,5 +517,3 @@ mod tests {
 
      */
 }
-
-

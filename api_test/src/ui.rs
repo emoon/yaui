@@ -1,19 +1,14 @@
-use std::cell::UnsafeCell;
-use background_worker::WorkSystem;
 use crate::font::{FontHandle, TextGenerator};
-use crate::internal_error::{InternalResult};
-use std::collections::HashMap;
+use crate::internal_error::InternalResult;
+use background_worker::WorkSystem;
+use clay_layout::layout::{Alignment, LayoutAlignmentX, LayoutAlignmentY};
 use clay_layout::{
-    color::Color as ClayColor,
-    Clay,
-    ClayLayoutScope,
-    Clay_Dimensions,
-    math::Dimensions,
+    Clay, Clay_Dimensions, Clay_StringSlice, Clay_TextElementConfig, ClayLayoutScope, Declaration,
+    color::Color as ClayColor, fixed, grow, id::Id, layout::LayoutDirection, math::Dimensions,
     text::TextConfig,
-    Clay_StringSlice, Clay_TextElementConfig,
-    Declaration,
-    id::Id,
 };
+use std::cell::UnsafeCell;
+use std::collections::HashMap;
 use tiny_skia::Pixmap;
 
 // TODO: We likely need something better than this
@@ -48,7 +43,7 @@ struct State<'a> {
 
 impl<'a> State<'a> {
     #[inline(always)]
-    fn layout(&mut self) -> &mut UiLayoutScope<'a> {
+    pub fn layout(&mut self) -> &mut UiLayoutScope<'a> {
         unsafe { self.layout_scope.as_mut().unwrap_unchecked() }
     }
 }
@@ -56,6 +51,12 @@ impl<'a> State<'a> {
 macro_rules! get_state_mut {
     ($self:expr) => {
         unsafe { &mut *$self.state.get() }
+    };
+}
+
+macro_rules! get_layout_mut {
+    ($self:expr) => {
+        unsafe { $self.layout_scope.as_mut().unwrap_unchecked() }
     };
 }
 
@@ -85,10 +86,7 @@ impl<'a> Ui<'a> {
         // This is a hack. To be fixed later
         unsafe {
             let raw_ptr = Box::into_raw(data);
-            Clay::set_measure_text_function_unsafe(
-                Self::measure_text_trampoline,
-                raw_ptr as _,
-            );
+            Clay::set_measure_text_function_unsafe(Self::measure_text_trampoline, raw_ptr as _);
             Box::from_raw(raw_ptr)
         }
     }
@@ -111,10 +109,23 @@ impl<'a> Ui<'a> {
         }
     }
 
-
     #[inline(always)]
     fn state(&'a self) -> &'a mut State<'a> {
         unsafe { &mut *self.state.get() }
+    }
+
+    // Internal helper for the area! macro
+    #[doc(hidden)]
+    pub fn __internal_with_layout<F>(&self, declaration: &Declaration<'a, ImageInfo, ()>, f: F)
+    where
+        F: FnOnce(&Ui),
+    {
+        let state = unsafe { &mut *self.state.get() };
+        let clay_scope = state.layout();
+        
+        clay_scope.with(declaration, |_clay| {
+            f(self);
+        });
     }
 
 
@@ -122,7 +133,7 @@ impl<'a> Ui<'a> {
         let state = get_state_mut!(self);
         state.text_generator.load_font(path, &state.bg_worker)
     }
-    
+
     pub fn register_font(&self, font_id: FontHandle, style: FontStyle) {
         let state = get_state_mut!(self);
         state.font_styles.insert(style, font_id);
@@ -160,32 +171,42 @@ impl<'a> Ui<'a> {
         self.text_size(text, config.font_size as u32)
     }
 
-    pub fn render(&self) {
-        // Placeholder for rendering logic
-    }
-
     pub fn label(&self, text: &str, col: ClayColor) {
         let state = get_state_mut!(self);
         let font_id = state.active_font;
         let font_size = state.font_size;
 
-        let _ = state.text_generator.queue_generate_text(
-            text,
-            font_size,
-            font_id,
-            &state.bg_worker,
-        );
+        let _ =
+            state
+                .text_generator
+                .queue_generate_text(text, font_size, font_id, &state.bg_worker);
 
-        let scope = state.layout();
-
-        scope.text(
-            text,
-            TextConfig::new()
-                .font_id(font_id as u16)
-                .font_size(font_size as _)
-                .wrap_mode(clay_layout::text::TextElementConfigWrapMode::None)
-                .color(col)
+        self.with_layout(
+            &Declaration::new()
+                .id(self.id(text))
+                .layout()
+                .width(grow!())
+                .height(fixed!(80.0))
+                .child_alignment(Alignment::new(
+                    LayoutAlignmentX::Center,
+                    LayoutAlignmentY::Center,
+                ))
+                .child_gap(40)
+                .direction(LayoutDirection::LeftToRight)
                 .end(),
+            |_ui| {
+                let scope = state.layout();
+
+                scope.text(
+                    text,
+                    TextConfig::new()
+                        .font_id(font_id as u16)
+                        .font_size(font_size as _)
+                        .wrap_mode(clay_layout::text::TextElementConfigWrapMode::None)
+                        .color(col)
+                        .end(),
+                );
+            },
         );
     }
 
@@ -204,7 +225,6 @@ impl<'a> Ui<'a> {
         let scope = state.layout();
         scope.id(name)
     }
-
 
     pub fn begin(&self, window_size: (usize, usize)) {
         let state = get_state_mut!(self);
@@ -226,36 +246,195 @@ impl<'a> Ui<'a> {
     pub fn end(&self, output: &mut [u32]) {
         let state = get_state_mut!(self);
         let text_generator = &state.text_generator;
-        let mut pixmap = Pixmap::new(state.window_size.0 as u32, state.window_size.1 as u32).unwrap();
+        let mut pixmap =
+            Pixmap::new(state.window_size.0 as u32, state.window_size.1 as u32).unwrap();
 
-        let scope = unsafe { state.layout_scope.as_mut().unwrap_unchecked() };
+        let scope = get_layout_mut!(state);
 
         crate::tiny_skia_renderer::clay_tiny_skia_render(&mut pixmap, scope.end(), text_generator);
 
         for (index, p) in pixmap.data().chunks_exact(4).enumerate() {
             output[index] = u32::from_le_bytes([p[0], p[1], p[2], p[3]]);
         }
-
-
-        /*
-        for command in scope.end() {
-            match command.config {
-                RenderCommandConfig::Text(text) => {
-                    let text_data = text.text;
-                    let font_size = text.font_size as u32;
-                    let font_id = text.font_id as FontHandle;
-
-                    if let Some(size) = state.text_generator.get_text(text_data, font_size, font_id) {
-                        // Render the text here, e.g., draw it to a texture or directly to the output
-                        // This is a placeholder for actual rendering logic
-                        println!("Rendering text: {} with size: {:?}", text_data, size);
-                    }
-                }
-                _ => {
-                    // Handle other render commands (e.g., images, rectangles, etc.)
-                }
-            }
-        }
-         */
     }
+}
+
+/// Creates an RGB color with values from 0-255
+/// 
+/// # Examples
+/// ```rust
+/// use crate::rgb;
+/// 
+/// let red = rgb(255, 0, 0);
+/// let green = rgb(0, 255, 0);
+/// let blue = rgb(0, 0, 255);
+/// let gray = rgb(128, 128, 128);
+/// ```
+pub fn rgb(r: u8, g: u8, b: u8) -> ClayColor {
+    ClayColor::rgb(r as f32, g as f32, b as f32)
+}
+
+/// Creates an RGBA color with values from 0-255 for RGB and 0.0-1.0 for alpha
+/// 
+/// # Examples
+/// ```rust
+/// use crate::rgba;
+/// 
+/// let semi_red = rgba(255, 0, 0, 0.5);
+/// let transparent_black = rgba(0, 0, 0, 0.0);
+/// let opaque_white = rgba(255, 255, 255, 1.0);
+/// ```
+pub fn rgba(r: u8, g: u8, b: u8, a: f32) -> ClayColor {
+    ClayColor::rgba(r as f32, g as f32, b as f32, a)
+}
+
+// Make get_state_mut available within this module
+pub(crate) use get_state_mut;
+
+/// The `area!` macro provides a clean, intuitive way to create UI layouts without exposing
+/// the underlying Clay implementation. It abstracts the complexity of Clay's declaration
+/// system and provides a more user-friendly API.
+///
+/// # Syntax
+/// ```rust
+/// area!(ui, {
+///     id: "my_element",
+///     layout: {
+///         width: fixed!(100.0),
+///         height: grow!(),
+///         direction: LayoutDirection::LeftToRight,
+///         padding: Padding::all(10.0),
+///         child_gap: 5,
+///         child_alignment: Alignment::new(LayoutAlignmentX::Center, LayoutAlignmentY::Center),
+///     },
+///     background_color: ClayColor::rgb(50, 50, 50),
+///     corner_radius: {
+///         all: 5.0,
+///     },
+///     border: {
+///         width: 2,
+///         color: ClayColor::rgb(100, 100, 100),
+///     },
+/// }, |ui| {
+///     // Child elements here
+/// });
+/// ```
+#[macro_export]
+macro_rules! area {
+    ($ui:expr, {
+        $(id: $id:expr,)?
+        $(layout: {
+            $(width: $width:expr,)?
+            $(height: $height:expr,)?
+            $(padding: $padding:expr,)?
+            $(direction: $direction:expr,)?
+            $(child_gap: $gap:expr,)?
+            $(child_alignment: $align:expr,)?
+        },)?
+        $(corner_radius: {
+            $(all: $radius:expr,)?
+            $(top_left: $tl:expr,)?
+            $(top_right: $tr:expr,)?
+            $(bottom_left: $bl:expr,)?
+            $(bottom_right: $br:expr,)?
+        },)?
+        $(background_color: $bg:expr,)?
+        $(border: {
+            $(width: $border_width:expr,)?
+            $(left: $border_left:expr,)?
+            $(right: $border_right:expr,)?
+            $(top: $border_top:expr,)?
+            $(bottom: $border_bottom:expr,)?
+            $(between_children: $border_between:expr,)?
+            $(color: $border_color:expr,)?
+        },)?
+        $(floating: {
+            $(offset: $float_offset:expr,)?
+            $(dimensions: $float_dimensions:expr,)?
+            $(z_index: $float_z:expr,)?
+            $(parent_id: $float_parent:expr,)?
+            $(attach_points: ($float_element:expr, $float_parent_point:expr),)?
+            $(attach_to: $float_attach:expr,)?
+            $(pointer_capture_mode: $float_capture:expr,)?
+        },)?
+        $(aspect_ratio: $aspect:expr,)?
+        $(clip: ($clip_h:expr, $clip_v:expr, $clip_offset:expr),)?
+    }, $body:expr) => {
+        {
+            use clay_layout::Declaration;
+            let mut decl = Declaration::new();
+            
+            // Set ID if provided (automatically convert string to ID)
+            $(decl.id($ui.id($id));)?
+            
+            // Configure layout if provided
+            $(
+                {
+                    let mut layout = decl.layout();
+                    $(layout.width($width);)?
+                    $(layout.height($height);)?
+                    $(layout.padding($padding);)?
+                    $(layout.direction($direction);)?
+                    $(layout.child_gap($gap);)?
+                    $(layout.child_alignment($align);)?
+                    layout.end();
+                }
+            )?
+            
+            // Configure corner radius if provided
+            $(
+                {
+                    let mut corner = decl.corner_radius();
+                    $(corner.all($radius);)?
+                    $(corner.top_left($tl);)?
+                    $(corner.top_right($tr);)?
+                    $(corner.bottom_left($bl);)?
+                    $(corner.bottom_right($br);)?
+                    corner.end();
+                }
+            )?
+            
+            // Set background color if provided
+            $(decl.background_color($bg);)?
+            
+            // Configure border if provided
+            $(
+                {
+                    let mut border = decl.border();
+                    $(border.all_directions($border_width);)?
+                    $(border.left($border_left);)?
+                    $(border.right($border_right);)?
+                    $(border.top($border_top);)?
+                    $(border.bottom($border_bottom);)?
+                    $(border.between_children($border_between);)?
+                    $(border.color($border_color);)?
+                    border.end();
+                }
+            )?
+            
+            // Configure floating if provided
+            $(
+                {
+                    let mut floating = decl.floating();
+                    $(floating.offset($float_offset);)?
+                    $(floating.dimensions($float_dimensions);)?
+                    $(floating.z_index($float_z);)?
+                    $(floating.parent_id($float_parent);)?
+                    $(floating.attach_points($float_element, $float_parent_point);)?
+                    $(floating.attach_to($float_attach);)?
+                    $(floating.pointer_capture_mode($float_capture);)?
+                    floating.end();
+                }
+            )?
+            
+            // Set aspect ratio if provided
+            $(decl.aspect_ratio($aspect);)?
+            
+            // Set clip if provided
+            $(decl.clip($clip_h, $clip_v, $clip_offset);)?
+            
+            // Execute the with call using the internal helper
+            $ui.with_layout(&decl, $body)
+        }
+    };
 }

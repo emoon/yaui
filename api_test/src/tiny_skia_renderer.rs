@@ -1,10 +1,10 @@
 use crate::font::FontHandle;
+use crate::font::TextGenerator;
 use clay_layout::math::{BoundingBox, Dimensions};
-use clay_layout::render_commands::{Custom, RenderCommand, RenderCommandConfig};
+use clay_layout::render_commands::{RenderCommand, RenderCommandConfig};
 use clay_layout::text::TextConfig;
 use clay_layout::{ClayLayoutScope, Color as ClayColor};
 use tiny_skia::*;
-use crate::font::TextGenerator;
 
 pub fn clay_to_tiny_skia_color(color: ClayColor) -> Color {
     Color::from_rgba8(
@@ -16,8 +16,7 @@ pub fn clay_to_tiny_skia_color(color: ClayColor) -> Color {
 }
 
 fn clay_to_tiny_skia_rect(rect: BoundingBox) -> Rect {
-    Rect::from_xywh(rect.x, rect.y, rect.width, rect.height)
-        .expect("Invalid rectangle dimensions")
+    Rect::from_xywh(rect.x, rect.y, rect.width, rect.height).expect("Invalid rectangle dimensions")
 }
 
 /// Represents a pre-rendered text glyph as a pixmap
@@ -54,13 +53,7 @@ pub fn pixmap_from_a8_data(width: u32, height: u32, alpha_data: &[u8]) -> Option
 }
 
 /// Draw a text pixmap onto the target pixmap with color modulation
-fn draw_text_pixmap(
-    target: &mut Pixmap,
-    text_pixmap: &Pixmap,
-    x: i32,
-    y: i32,
-    color: Color,
-) {
+fn draw_text_pixmap(target: &mut Pixmap, text_pixmap: &Pixmap, x: i32, y: i32, color: Color) {
     // Create a paint for color modulation if needed
     let mut paint = PixmapPaint::default();
     paint.opacity = color.alpha();
@@ -176,7 +169,7 @@ pub fn clay_tiny_skia_render<'a, ImageData: 'a, CustomElementData: 'a>(
      */
 ) {
     // Save/restore stack for clipping
-    let mut clip_stack: Vec<Option<Mask>> = Vec::new();
+    let clip_stack: Vec<Option<Mask>> = Vec::new();
 
     for command in render_commands {
         match command.config {
@@ -184,7 +177,7 @@ pub fn clay_tiny_skia_render<'a, ImageData: 'a, CustomElementData: 'a>(
                 let text_data = text.text;
                 let font_size = text.font_size as u32;
                 let font_id = text.font_id as FontHandle;
-                
+
                 if let Some(data) = text_generator.get_text(text_data, font_size, font_id) {
                     // Option 1: Direct draw if text_pixmap is already colored
                     let mut paint = PixmapPaint::default();
@@ -199,7 +192,7 @@ pub fn clay_tiny_skia_render<'a, ImageData: 'a, CustomElementData: 'a>(
                         None,
                     );
                 }
-                
+
                 /*
                 if let Some(text_pixmap) = text_pixmaps.get(text.font_id as usize) {
                     let color = clay_to_tiny_skia_color(text.color);
@@ -235,7 +228,7 @@ pub fn clay_tiny_skia_render<'a, ImageData: 'a, CustomElementData: 'a>(
 
                  */
             }
-            RenderCommandConfig::Image(image) => {
+            RenderCommandConfig::Image(_image) => {
                 /*
                 // image.data should be a Pixmap containing the image data
                 let image_pixmap = &image.data;
@@ -293,7 +286,7 @@ pub fn clay_tiny_skia_render<'a, ImageData: 'a, CustomElementData: 'a>(
                 paint.anti_alias = true;
 
                 let bounds = clay_to_tiny_skia_rect(command.bounding_box);
-                let current_clip = None;//clip_stack.last().and_then(|c| c.as_ref());
+                let current_clip = None; //clip_stack.last().and_then(|c| c.as_ref());
 
                 if rect.corner_radii.top_left > 0.0
                     || rect.corner_radii.top_right > 0.0
@@ -317,12 +310,7 @@ pub fn clay_tiny_skia_render<'a, ImageData: 'a, CustomElementData: 'a>(
                         );
                     }
                 } else {
-                    pixmap.fill_rect(
-                        bounds,
-                        &paint,
-                        Transform::identity(),
-                        current_clip,
-                    );
+                    pixmap.fill_rect(bounds, &paint, Transform::identity(), current_clip);
                 }
             }
             RenderCommandConfig::Border(border) => {
@@ -354,7 +342,9 @@ pub fn clay_tiny_skia_render<'a, ImageData: 'a, CustomElementData: 'a>(
                         bb.x + bb.width - border.width.right as f32,
                         bb.y + border.corner_radii.top_right,
                         border.width.right as f32,
-                        bb.height - border.corner_radii.top_right - border.corner_radii.bottom_right,
+                        bb.height
+                            - border.corner_radii.top_right
+                            - border.corner_radii.bottom_right,
                     );
                     if let Some(rect) = rect {
                         pixmap.fill_rect(rect, &paint, Transform::identity(), current_clip);
@@ -379,7 +369,9 @@ pub fn clay_tiny_skia_render<'a, ImageData: 'a, CustomElementData: 'a>(
                     let rect = Rect::from_xywh(
                         bb.x + border.corner_radii.bottom_left,
                         bb.y + bb.height - border.width.bottom as f32,
-                        bb.width - border.corner_radii.bottom_left - border.corner_radii.bottom_right,
+                        bb.width
+                            - border.corner_radii.bottom_left
+                            - border.corner_radii.bottom_right,
                         border.width.bottom as f32,
                     );
                     if let Some(rect) = rect {
@@ -391,7 +383,12 @@ pub fn clay_tiny_skia_render<'a, ImageData: 'a, CustomElementData: 'a>(
                 // tiny-skia doesn't have direct arc drawing, so we approximate with curves
 
                 // Helper to create an arc path (approximate with quadratic curves)
-                let create_arc_path = |center_x: f32, center_y: f32, radius: f32, start_angle: f32, end_angle: f32| -> Option<Path> {
+                let create_arc_path = |center_x: f32,
+                                       center_y: f32,
+                                       radius: f32,
+                                       start_angle: f32,
+                                       end_angle: f32|
+                 -> Option<Path> {
                     let mut pb = PathBuilder::new();
 
                     // Simple approximation - for better arcs, use multiple cubic curves
@@ -410,14 +407,26 @@ pub fn clay_tiny_skia_render<'a, ImageData: 'a, CustomElementData: 'a>(
                 if border.corner_radii.top_left > 0.0 {
                     let center_x = bb.x + border.corner_radii.top_left;
                     let center_y = bb.y + border.corner_radii.top_left;
-                    if let Some(path) = create_arc_path(center_x, center_y, border.corner_radii.top_left, 180.0, 270.0) {
+                    if let Some(path) = create_arc_path(
+                        center_x,
+                        center_y,
+                        border.corner_radii.top_left,
+                        180.0,
+                        270.0,
+                    ) {
                         let stroke_paint = paint;
-                        pixmap.stroke_path(&path, &stroke_paint, &Stroke::default(), Transform::identity(), current_clip);
+                        pixmap.stroke_path(
+                            &path,
+                            &stroke_paint,
+                            &Stroke::default(),
+                            Transform::identity(),
+                            current_clip,
+                        );
                     }
                 }
                 // ... similar for other corners
             }
-            RenderCommandConfig::Custom(ref custom) => {
+            RenderCommandConfig::Custom(ref _custom) => {
                 //render_custom_element(&command, custom, pixmap);
             }
             RenderCommandConfig::None() => {}
@@ -426,7 +435,7 @@ pub fn clay_tiny_skia_render<'a, ImageData: 'a, CustomElementData: 'a>(
 }
 
 pub type TinySkiaClayScope<'clay, 'render, CustomElements> =
-ClayLayoutScope<'clay, 'render, Pixmap, CustomElements>; // Using Pixmap for text/image data
+    ClayLayoutScope<'clay, 'render, Pixmap, CustomElements>; // Using Pixmap for text/image data
 
 // Helper function to get dimensions from your text pixmap
 pub fn get_text_pixmap_dimensions(pixmap: &Pixmap) -> Dimensions {
