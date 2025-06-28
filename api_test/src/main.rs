@@ -9,8 +9,8 @@ mod render_api;
 mod tiny_skia_renderer;
 mod ui;
 
+use crate::daw_ui::{DawState, daw_ui};
 use ui::Ui;
-use crate::daw_ui::{daw_ui, DawState};
 
 // Re-export for use in other modules
 pub use ui::{rgb, rgba};
@@ -42,14 +42,19 @@ fn main() {
     // Limit to max ~60 fps update rate
     window.set_target_fps(60);
     let mut daw_state = DawState::default(); // In real app, this would be persistent
+    let mut last_time = std::time::Instant::now();
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
         for i in buffer.iter_mut() {
             *i = 0; // write something more funny here!
         }
 
-        ui.begin((WIDTH, HEIGHT));
-        
+        let current_time = std::time::Instant::now();
+        let delta_time = current_time.duration_since(last_time);
+        last_time = current_time;
+
+        ui.begin(delta_time.as_secs_f32(), (WIDTH, HEIGHT));
+
         daw_ui(&mut daw_state, &ui, WIDTH as f32, HEIGHT as f32);
 
         ui.end(&mut buffer);

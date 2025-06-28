@@ -574,14 +574,14 @@ impl From<Clay_StringSlice> for &str {
 }
 
 /// This macro combines element declaration and the `.with()` call into a single syntax.
-/// It automatically handles string-to-ID conversion and eliminates the need for repetitive 
+/// It automatically handles string-to-ID conversion and eliminates the need for repetitive
 /// `clay.id()` calls and manual `.with()` invocations.
-/// 
+///
 /// # Examples
-/// 
+///
 /// ```rust
 /// use clay_layout::{clay, fixed};
-/// 
+///
 /// // Simple red rectangle
 /// clay!(clay, {
 ///     id: "red_rectangle",
@@ -594,7 +594,7 @@ impl From<Clay_StringSlice> for &str {
 ///     },
 ///     background_color: (0xFF, 0x00, 0x00).into(),
 /// }, |_| {});
-/// 
+///
 /// // Container with children
 /// clay!(clay, {
 ///     id: "container",
@@ -660,10 +660,10 @@ macro_rules! clay {
     }, $body:expr) => {
         {
             let mut decl = $crate::Declaration::new();
-            
+
             // Set ID if provided (automatically convert string to ID)
             $(decl.id($clay_instance.id($id));)?
-            
+
             // Configure layout if provided
             $(
                 {
@@ -677,7 +677,7 @@ macro_rules! clay {
                     layout.end();
                 }
             )?
-            
+
             // Configure corner radius if provided
             $(
                 {
@@ -690,10 +690,10 @@ macro_rules! clay {
                     corner.end();
                 }
             )?
-            
+
             // Set background color if provided
             $(decl.background_color($bg);)?
-            
+
             // Configure border if provided
             $(
                 {
@@ -708,7 +708,7 @@ macro_rules! clay {
                     border.end();
                 }
             )?
-            
+
             // Configure floating if provided
             $(
                 {
@@ -723,7 +723,7 @@ macro_rules! clay {
                     floating.end();
                 }
             )?
-            
+
             // Configure image if provided
             $(
                 {
@@ -732,16 +732,16 @@ macro_rules! clay {
                     image.end();
                 }
             )?
-            
+
             // Set aspect ratio if provided
             $(decl.aspect_ratio($aspect);)?
-            
+
             // Set clip if provided
             $(decl.clip($clip_h, $clip_v, $clip_offset);)?
-            
+
             // Set custom element if provided
             $(decl.custom_element($custom);)?
-            
+
             // Execute the with call
             $clay_instance.with(&decl, $body)
         }

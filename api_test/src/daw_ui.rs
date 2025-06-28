@@ -1,9 +1,6 @@
-use crate::{Ui, rgb, rgba, area};
+use crate::{Ui, area, rgb, rgba};
 use clay_layout::{
-    color::Color as ClayColor,
-    fixed, grow,
-    layout::LayoutDirection,
-    layout::{Padding},
+    color::Color as ClayColor, fixed, grow, layout::LayoutDirection, layout::Padding,
 };
 
 // DAW-specific data structures
@@ -90,7 +87,8 @@ impl DawState {
 
     pub fn update_track_volume_text(&mut self, track_idx: usize) {
         if track_idx < self.tracks.len() && track_idx < self.track_volume_texts.len() {
-            self.track_volume_texts[track_idx] = format!("Vol: {:.1}", self.tracks[track_idx].volume);
+            self.track_volume_texts[track_idx] =
+                format!("Vol: {:.1}", self.tracks[track_idx].volume);
         }
     }
 }
@@ -131,7 +129,10 @@ impl Default for DawState {
         ];
 
         // Pre-allocate string storage
-        let track_volume_texts = tracks.iter().map(|track| format!("Vol: {:.1}", track.volume)).collect();
+        let track_volume_texts = tracks
+            .iter()
+            .map(|track| format!("Vol: {:.1}", track.volume))
+            .collect();
         let timeline_marker_texts = (0..20).map(|i| format!("{}", i)).collect();
         let mut piano_key_ids = Vec::new();
         for octave in 0..4 {
@@ -139,7 +140,7 @@ impl Default for DawState {
                 piano_key_ids.push(format!("key_{}_{}", octave, note));
             }
         }
-        
+
         // Pre-allocate clip and track row IDs (for a reasonable number)
         let clip_ids: Vec<String> = (0..100).map(|i| format!("clip_{}", i)).collect();
         let track_row_ids: Vec<String> = (0..20).map(|i| format!("track_row_{}", i)).collect();
@@ -161,7 +162,7 @@ impl Default for DawState {
             clip_ids,
             track_row_ids,
         };
-        
+
         // Initialize time display text
         state.update_time_display();
         state
@@ -231,7 +232,7 @@ fn toolbar_tools(state: &mut DawState, ui: &Ui) {
             ui.label(icon, if is_selected {
                 rgb(100, 150, 255)
             } else {
-                rgba(150, 150, 150, 0.7) // Semi-transparent when not selected
+                rgba(150, 150, 150, 128) // Semi-transparent when not selected
             });
         }
     });
@@ -371,6 +372,7 @@ fn track_area(state: &DawState, ui: &Ui) {
             height: fixed!(600.0),
             direction: LayoutDirection::TopToBottom,
         },
+        background_color: rgb(0, 0, 255),
     }, |ui| {
         // Time ruler
         area!(ui, {
@@ -590,6 +592,57 @@ fn piano_roll_panel(state: &DawState, ui: &Ui) {
     });
 }
 
+fn impact_panel(_state: &DawState, ui: &Ui) {
+    area!(ui, {
+        id: "impact_panel",
+        layout: {
+            width: grow!(),
+            height: grow!(),
+            direction: LayoutDirection::TopToBottom,
+        },
+        background_color: rgb(50, 150, 60),
+    }, |_ui| {});
+}
+
+fn mixing_panel(state: &DawState, ui: &Ui) {
+    area!(ui, {
+        id: "mixing_panel",
+        layout: {
+            width: grow!(),
+            height: grow!(),
+            direction: LayoutDirection::TopToBottom,
+        },
+        background_color: rgb(160, 60, 70),
+    }, |_ui| {});
+}
+
+fn panels(state: &DawState, ui: &Ui) {
+    area!(ui, {
+        id: "panels",
+        layout: {
+            width: fixed!(400.0),
+            height: grow!(),
+            direction: LayoutDirection::TopToBottom,
+        },
+        background_color: rgb(40, 40, 50),
+    }, |ui| {
+        impact_panel(&state, &ui);
+        mixing_panel(&state, &ui);
+    });
+}
+
+fn playback_toolbar(state: &DawState, ui: &Ui) {
+    area!(ui, {
+        id: "playback_toolbar",
+        layout: {
+            width: grow!(),
+            height: fixed!(80.0),
+        },
+        background_color: rgb(40, 40, 150),
+    }, |ui| {
+    });
+}
+
 pub fn daw_ui(state: &mut DawState, ui: &Ui, width: f32, height: f32) {
     // Update time display (simulate time progression)
     state.timeline_position += 0.1; // Simulate time passing
@@ -616,14 +669,13 @@ pub fn daw_ui(state: &mut DawState, ui: &Ui, width: f32, height: f32) {
             },
         }, |ui| {
             // Track area (left/center)
-            track_area(&state, ui);
-
-            // Mixer panel (right)
-            mixer_panel(&state, ui);
+            panels(&state, ui);
         });
 
+       playback_toolbar(state, ui);
+
         // Bottom piano roll/step sequencer
-        piano_roll_panel(&state, ui);
+        //piano_roll_panel(&state, ui);
     });
 }
 

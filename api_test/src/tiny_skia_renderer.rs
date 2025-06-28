@@ -158,7 +158,7 @@ fn create_rounded_rect_path(rect: Rect, corner_radii: &[f32; 4]) -> Option<Path>
 /// This is a port of Clay's raylib renderer using tiny-skia as the drawing API.
 pub fn clay_tiny_skia_render<'a, ImageData: 'a, CustomElementData: 'a>(
     pixmap: &mut Pixmap,
-    render_commands: impl Iterator<Item = RenderCommand<'a, ImageData, CustomElementData>>,
+    render_commands: &[RenderCommand<'a, ImageData, CustomElementData>],
     text_generator: &TextGenerator,
     /*
     mut render_custom_element: impl FnMut(
@@ -172,7 +172,7 @@ pub fn clay_tiny_skia_render<'a, ImageData: 'a, CustomElementData: 'a>(
     let clip_stack: Vec<Option<Mask>> = Vec::new();
 
     for command in render_commands {
-        match command.config {
+        match &command.config {
             RenderCommandConfig::Text(text) => {
                 let text_data = text.text;
                 let font_size = text.font_size as u32;
@@ -426,7 +426,7 @@ pub fn clay_tiny_skia_render<'a, ImageData: 'a, CustomElementData: 'a>(
                 }
                 // ... similar for other corners
             }
-            RenderCommandConfig::Custom(ref _custom) => {
+            RenderCommandConfig::Custom(_custom) => {
                 //render_custom_element(&command, custom, pixmap);
             }
             RenderCommandConfig::None() => {}

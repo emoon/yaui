@@ -7,6 +7,7 @@ use clay_layout::{
     color::Color as ClayColor, fixed, grow, id::Id, layout::LayoutDirection, math::Dimensions,
     text::TextConfig,
 };
+use glam::Vec4;
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use tiny_skia::Pixmap;
@@ -29,16 +30,29 @@ pub struct ImageInfo {
 
 type UiDeclaration<'a> = Declaration<'a, ImageInfo, ()>;
 type UiLayoutScope<'a> = ClayLayoutScope<'a, 'a, ImageInfo, ()>;
+#[derive(Debug, Default)]
+#[allow(dead_code)]
+pub struct ItemState {
+    pub aabb: Vec4,
+    pub was_hovered: bool,
+    pub was_clicked: bool,
+    pub active: f32,
+    pub frame: u64,
+}
 
 struct State<'a> {
     bg_worker: WorkSystem,
     layout: Clay,
     text_generator: TextGenerator,
     font_styles: HashMap<FontStyle, FontHandle>,
+    item_states: HashMap<u32, ItemState>, // TODO: Arena hashmap
     active_font: FontHandle,
     layout_scope: Option<UiLayoutScope<'a>>,
     font_size: u32,
     window_size: (usize, usize),
+    current_frame: u64,
+    delta_time: f32,
+    focus_id: Option<Id>,
 }
 
 impl<'a> State<'a> {
@@ -77,6 +91,10 @@ impl<'a> Ui<'a> {
             active_font: 0,
             font_size: 32,
             window_size: (320, 256),
+            item_states: HashMap::with_capacity(64),
+            current_frame: 0,
+            delta_time: 0.0,
+            focus_id: None,
         };
 
         let data = Box::new(Ui {
@@ -122,12 +140,11 @@ impl<'a> Ui<'a> {
     {
         let state = unsafe { &mut *self.state.get() };
         let clay_scope = state.layout();
-        
+
         clay_scope.with(declaration, |_clay| {
             f(self);
         });
     }
-
 
     pub fn load_font(&self, path: &str) -> InternalResult<FontHandle> {
         let state = get_state_mut!(self);
@@ -226,9 +243,10 @@ impl<'a> Ui<'a> {
         scope.id(name)
     }
 
-    pub fn begin(&self, window_size: (usize, usize)) {
+    pub fn begin(&self, delta_time: f32, window_size: (usize, usize)) {
         let state = get_state_mut!(self);
         state.window_size = window_size;
+        state.delta_time = delta_time;
         state
             .layout
             .set_layout_dimensions(Dimensions::new(window_size.0 as f32, window_size.1 as f32));
@@ -243,6 +261,11 @@ impl<'a> Ui<'a> {
         state.text_generator.update();
     }
 
+    pub fn set_focus_id(&self, id: Id) {
+        let state = unsafe { &mut *self.state.get() };
+        state.focus_id = Some(id);
+    }
+
     pub fn end(&self, output: &mut [u32]) {
         let state = get_state_mut!(self);
         let text_generator = &state.text_generator;
@@ -251,45 +274,84 @@ impl<'a> Ui<'a> {
 
         let scope = get_layout_mut!(state);
 
-        crate::tiny_skia_renderer::clay_tiny_skia_render(&mut pixmap, scope.end(), text_generator);
+        // TODO: Fix me
+        let render_items: Vec<_> = scope.end().collect();
+
+        let anim_rate = 1.0 - 2f32.powf(-8.0 * state.delta_time);
+
+        let focus_id = if let Some(id) = state.focus_id {
+            id.id
+        } else {
+            scope.id("").id
+        };
+
+        for command in &render_items {
+            let bb = command.bounding_box;
+
+            let item = state.item_states.entry(command.id).or_insert(ItemState {
+                ..Default::default()
+            });
+
+            let is_active = if command.id == focus_id.id { 1.0 } else { 0.0 };
+
+            item.active += anim_rate * (is_active - item.active);
+            item.aabb = Vec4::new(bb.x, bb.y, bb.x + bb.width, bb.y + bb.height);
+            item.frame = state.current_frame;
+        }
+
+        crate::tiny_skia_renderer::clay_tiny_skia_render(
+            &mut pixmap,
+            &render_items,
+            text_generator,
+        );
 
         for (index, p) in pixmap.data().chunks_exact(4).enumerate() {
-            output[index] = u32::from_le_bytes([p[0], p[1], p[2], p[3]]);
+            // Convert RGBA to ARGB: tiny-skia uses RGBA, minifb expects ARGB
+            output[index] = ((p[3] as u32) << 24) | // Alpha
+                           ((p[0] as u32) << 16) | // Red  
+                           ((p[1] as u32) << 8)  | // Green
+                           (p[2] as u32); // Blue
         }
+
+        // remove all items that doesn't match the current frame
+        state
+            .item_states
+            .retain(|_, item| item.frame == state.current_frame);
+
+        state.current_frame += 1;
     }
 }
 
 /// Creates an RGB color with values from 0-255
-/// 
+///
 /// # Examples
 /// ```rust
 /// use crate::rgb;
-/// 
+///
 /// let red = rgb(255, 0, 0);
 /// let green = rgb(0, 255, 0);
 /// let blue = rgb(0, 0, 255);
 /// let gray = rgb(128, 128, 128);
 /// ```
+#[inline]
 pub fn rgb(r: u8, g: u8, b: u8) -> ClayColor {
     ClayColor::rgb(r as f32, g as f32, b as f32)
 }
 
-/// Creates an RGBA color with values from 0-255 for RGB and 0.0-1.0 for alpha
-/// 
+/// Creates an RGBA color with values from 0-255 for RGBA
+///
 /// # Examples
 /// ```rust
 /// use crate::rgba;
-/// 
-/// let semi_red = rgba(255, 0, 0, 0.5);
+///
+/// let semi_red = rgba(255, 0, 0, 128);
 /// let transparent_black = rgba(0, 0, 0, 0.0);
-/// let opaque_white = rgba(255, 255, 255, 1.0);
+/// let opaque_white = rgba(255, 255, 255, 255);
 /// ```
-pub fn rgba(r: u8, g: u8, b: u8, a: f32) -> ClayColor {
-    ClayColor::rgba(r as f32, g as f32, b as f32, a)
+#[inline]
+pub fn rgba(r: u8, g: u8, b: u8, a: u8) -> ClayColor {
+    ClayColor::rgba(r as f32, g as f32, b as f32, a as f32)
 }
-
-// Make get_state_mut available within this module
-pub(crate) use get_state_mut;
 
 /// The `area!` macro provides a clean, intuitive way to create UI layouts without exposing
 /// the underlying Clay implementation. It abstracts the complexity of Clay's declaration
@@ -307,13 +369,13 @@ pub(crate) use get_state_mut;
 ///         child_gap: 5,
 ///         child_alignment: Alignment::new(LayoutAlignmentX::Center, LayoutAlignmentY::Center),
 ///     },
-///     background_color: ClayColor::rgb(50, 50, 50),
+///     background_color: rgb(50, 50, 50),
 ///     corner_radius: {
 ///         all: 5.0,
 ///     },
 ///     border: {
 ///         width: 2,
-///         color: ClayColor::rgb(100, 100, 100),
+///         color: rgb(100, 100, 100),
 ///     },
 /// }, |ui| {
 ///     // Child elements here
@@ -363,10 +425,10 @@ macro_rules! area {
         {
             use clay_layout::Declaration;
             let mut decl = Declaration::new();
-            
+
             // Set ID if provided (automatically convert string to ID)
             $(decl.id($ui.id($id));)?
-            
+
             // Configure layout if provided
             $(
                 {
@@ -380,7 +442,7 @@ macro_rules! area {
                     layout.end();
                 }
             )?
-            
+
             // Configure corner radius if provided
             $(
                 {
@@ -393,10 +455,10 @@ macro_rules! area {
                     corner.end();
                 }
             )?
-            
+
             // Set background color if provided
             $(decl.background_color($bg);)?
-            
+
             // Configure border if provided
             $(
                 {
@@ -411,7 +473,7 @@ macro_rules! area {
                     border.end();
                 }
             )?
-            
+
             // Configure floating if provided
             $(
                 {
@@ -426,13 +488,13 @@ macro_rules! area {
                     floating.end();
                 }
             )?
-            
+
             // Set aspect ratio if provided
             $(decl.aspect_ratio($aspect);)?
-            
+
             // Set clip if provided
             $(decl.clip($clip_h, $clip_v, $clip_offset);)?
-            
+
             // Execute the with call using the internal helper
             $ui.with_layout(&decl, $body)
         }
